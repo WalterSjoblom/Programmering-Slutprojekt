@@ -1,4 +1,9 @@
 
+// MONSTER SHOOTER – Top-down shooter
+// Spelaren rör sig med WASD, siktar med musen och skjuter
+// med vänsterklick. Karaktären ritas med Pink Monster-spritesheet
+// och roteras mot muspekaren varje frame.
+
 
 const canvas = document.getElementById("c");
 const ctx    = canvas.getContext("2d");
@@ -8,6 +13,12 @@ const STATE = { START: 0, PLAYING: 1, GAME_OVER: 2 };
 let state     = STATE.START;
 let highscore = parseInt(localStorage.getItem("shooterHS") || "0");
 
+
+// MUSHANTERING
+
+// getBoundingClientRect() konverterar sidkoordinater till
+// canvas-koordinater, nödvändigt om canvasen inte är i (0,0).
+// mouseDown sätts true vid klick och används i update() för skott.
 
 const mouse = { x: canvas.width / 2, y: canvas.height / 2, down: false };
 
@@ -33,6 +44,11 @@ canvas.addEventListener("mouseup", e => {
 canvas.addEventListener("contextmenu", e => e.preventDefault());
 
 
+// SPRITESHEET-INLADDNING
+// Använder Pink Monster idle- och run-spritesheet för spelaren.
+// Spriten roteras mot musen varje frame med ctx.rotate().
+// Om filerna saknas används en fallback-ritning istället.
+
 const sprites = {
     idle: { img: new Image(), frames: 4, loaded: false },
     run:  { img: new Image(), frames: 6, loaded: false },
@@ -46,10 +62,14 @@ for (const key in sprites) {
 }
 
 
+// KEYBOARD INPUT
+
 const keys = {};
 document.addEventListener("keydown", e => { keys[e.code] = true;  });
 document.addEventListener("keyup",   e => { keys[e.code] = false; });
 
+
+// SPELARE
 
 const player = {
     x: canvas.width  / 2,
@@ -73,13 +93,16 @@ const player = {
     currentSprite: "idle",
     isMoving:      false,
 
-   
-    superCharge:    0,     // Nuvarande laddning (0–100)
-    superMax:      10,     // Antal kills som krävs för full laddning
-    superActive:   false,  // Är superläget aktivt just nu?
-    superTimer:    0,      // Frames kvar av superläget
-    superDuration: 300,    // Hur länge superläget pågår (~5 sekunder vid 60fps)
-    superReady:    false,  // Sann när laddningen är full men inte aktiverad än
+    // SUPERKANON
+    // Laddas upp genom att döda fiender (superCharge ökas i checkCollisions).
+    // När mätaren är full kan spelaren trycka Mellanslag för att aktivera.
+    // Under superläget ökas skottfrekvensen kraftigt och kulorna är större.
+    superCharge:    0,    
+    superMax:      10,    
+    superActive:   false, 
+    superTimer:    0,      
+    superDuration: 300,    
+    superReady:    false,  
 
     reset() {
         this.x               = canvas.width  / 2;
@@ -97,7 +120,7 @@ const player = {
     },
 
     update() {
-
+        // ---- Rörelse ----
         let dx = 0, dy = 0;
         if (keys["ArrowLeft"]  || keys["KeyA"]) dx -= 1;
         if (keys["ArrowRight"] || keys["KeyD"]) dx += 1;
@@ -114,7 +137,7 @@ const player = {
         this.y  = Math.max(this.r, Math.min(canvas.height - this.r, this.y));
         this.isMoving = (dx !== 0 || dy !== 0);
 
-
+        // ---- Sikte ----
         // atan2(dy, dx) returnerar vinkeln i radianer mellan spelarens
         // position och musen. Används för att rotera spriten och kulans riktning.
         this.aimAngle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
@@ -129,7 +152,7 @@ const player = {
             }
         }
 
-
+        // ---- Skjut vid vänsterklick ----
         // Under superläget är shootRate 4x snabbare (5 vs 14 frames).
         // Vi väljer cooldown-värde baserat på om superläget är aktivt.
         const activeCooldown = this.superActive ? 4 : this.shootRate;
@@ -139,7 +162,7 @@ const player = {
             this.shootCooldown = activeCooldown;
         }
 
-   
+        // ---- Oövervinnlighetstimer ----
         if (this.invincible) {
             this.invincibleTimer++;
             if (this.invincibleTimer >= this.invincibleDur) {
@@ -147,7 +170,7 @@ const player = {
             }
         }
 
-      
+        // ---- Animationsframe ----
         this.currentSprite = this.isMoving ? "run" : "idle";
         this.frameTimer++;
         if (this.frameTimer >= this.frameDelay) {
@@ -265,6 +288,10 @@ const player = {
 };
 
 
+// SIKESMARKÖR (crosshair)
+// Ersätter OS-pekaren med ett hårkors på canvasen.
+// Färgen ändras till röd när man klickar.
+
 canvas.style.cursor = "none";
 
 function drawCrosshair() {
@@ -280,6 +307,8 @@ function drawCrosshair() {
     ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.stroke();
 }
 
+
+// KULOR
 
 let bullets = [];
 
@@ -316,6 +345,11 @@ function drawBullets() {
     }
 }
 
+
+// FIENDER
+// BasicEnemy: rakt mot spelaren, 1 HP.
+// TankEnemy:  långsammare, 3 HP med HP-bar, mer poäng.
+// Spawnar från slumpmässig kant på canvasen.
 
 let enemies = [];
 
@@ -389,6 +423,8 @@ function drawEnemies() {
 }
 
 
+// PARTIKELEFFEKTER
+
 let particles = [];
 
 function spawnParticles(x, y, color, count) {
@@ -426,6 +462,56 @@ function drawParticles() {
 }
 
 
+// KOLLISION (cirkel mot cirkel)
+// Jämför avstånd² mot (r1+r2)² – undviker Math.sqrt för prestanda.
+
+function circlesCollide(ax, ay, ar, bx, by, br) {
+    const dx = ax - bx, dy = ay - by;
+    return dx * dx + dy * dy < (ar + br) ** 2;
+}
+
+function checkCollisions() {
+    for (const b of bullets) {
+        for (const e of enemies) {
+            if (circlesCollide(b.x, b.y, b.r, e.x, e.y, e.r)) {
+                b.life = 0;
+                e.hp--;
+                e.hitFlash = 6;
+                if (e.hp <= 0) {
+                    spawnParticles(e.x, e.y, e.isTank ? "#9b59b6" : "#e74c3c", e.isTank ? 14 : 7);
+                    score += e.points;
+                    // Öka superladdningen vid kill.
+                    // Tankfiender ger 3 laddningspoäng eftersom de är svårare att döda.
+                    const chargeGain = e.isTank ? 3 : 1;
+                    if (!player.superActive) {
+                        player.superCharge = Math.min(player.superMax, player.superCharge + chargeGain);
+                        player.superReady  = (player.superCharge >= player.superMax);
+                    }
+                }
+            }
+        }
+    }
+    for (const e of enemies) {
+        if (circlesCollide(player.x, player.y, player.r - 4, e.x, e.y, e.r)) {
+            player.hit();
+        }
+    }
+}
+
+
+// VÅGHANTERING
+
+let wave = 0, waveTimer = 0;
+
+function updateWaves() {
+    if (enemies.length === 0) {
+        waveTimer++;
+        if (waveTimer >= 90) { wave++; waveTimer = 0; spawnEnemies(wave); }
+    }
+}
+
+
+// BAKGRUND
 
 function drawBackground() {
     ctx.fillStyle = "#0d0d20";
@@ -447,6 +533,103 @@ function drawBackground() {
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
     }
 }
+
+
+// HUD
+// Visar poäng, våg, liv och superladdningsmätaren.
+
+function drawHUD() {
+    // Övre remsa
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(0, 0, canvas.width, 48);
+    ctx.fillStyle = "white";
+    ctx.font      = "bold 18px Courier New";
+    ctx.textAlign = "left";
+    ctx.fillText(`Poäng: ${score}`, 14, 30);
+    ctx.textAlign = "center";
+    ctx.fillText(`— Våg ${wave} —`, canvas.width / 2, 30);
+    ctx.textAlign = "right";
+    ctx.font      = "20px Arial";
+    for (let i = 0; i < player.lives; i++) ctx.fillText("❤️", canvas.width - 14 - i * 30, 30);
+
+    // ---- Superladdningsmätare ----
+    // Visas nere till vänster. Mätaren fylls när man dödar fiender.
+    const barX = 14, barY = canvas.height - 36;
+    const barW = 160, barH = 18;
+
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(barX - 2, barY - 20, barW + 80, 38);
+
+    // Etikett
+    ctx.fillStyle = player.superActive ? "#f1c40f" : (player.superReady ? "#f39c12" : "#aaa");
+    ctx.font      = "bold 12px Courier New";
+    ctx.textAlign = "left";
+    ctx.fillText(
+        player.superActive ? `SUPER AKTIV! ${Math.ceil(player.superTimer / 60)}s` :
+        player.superReady  ? "SUPER REDO! [Mellanslag]" : "SUPERKANON",
+        barX, barY - 4
+    );
+
+    // Bakgrund till mätaren
+    ctx.fillStyle = "#333";
+    ctx.fillRect(barX, barY, barW, barH);
+
+    // Fyllnad – gradient från gul till orange när full
+    const fill = (player.superCharge / player.superMax) * barW;
+    if (player.superActive) {
+        // Pulserande guld under aktivt superläge
+        const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 100);
+        ctx.fillStyle = `rgba(255, ${150 + pulse * 80}, 0, 1)`;
+    } else {
+        ctx.fillStyle = player.superReady ? "#f39c12" : "#e67e22";
+    }
+    ctx.fillRect(barX, barY, fill, barH);
+
+    // Kant
+    ctx.strokeStyle = player.superReady || player.superActive ? "#f1c40f" : "#555";
+    ctx.lineWidth   = 2;
+    ctx.strokeRect(barX, barY, barW, barH);
+
+    // Statustext botten
+    if (enemies.length > 0) {
+        ctx.textAlign = "center"; ctx.fillStyle = "#e74c3c"; ctx.font = "13px Courier New";
+        ctx.fillText(`Fiender kvar: ${enemies.length}`, canvas.width / 2, canvas.height - 10);
+    } else if (state === STATE.PLAYING) {
+        ctx.textAlign = "center"; ctx.fillStyle = "#2ecc71"; ctx.font = "13px Courier New";
+        ctx.fillText(`Våg ${wave} klar! Nästa börjar snart...`, canvas.width / 2, canvas.height - 10);
+    }
+    ctx.textAlign = "left";
+}
+
+
+// SPELHANTERING
+
+let score = 0;
+
+function startOrRestart() {
+    player.reset();
+    bullets = []; enemies = []; particles = [];
+    score = 0; wave = 0; waveTimer = 0;
+    state = STATE.PLAYING;
+}
+
+document.addEventListener("keydown", e => {
+    if (e.code === "Enter" && state !== STATE.PLAYING) startOrRestart();
+
+    // Mellanslag aktiverar superkanonen om laddningen är full
+    if (e.code === "Space" && state === STATE.PLAYING) {
+        e.preventDefault();
+        if (player.superReady && !player.superActive) {
+            player.superActive = true;
+            player.superTimer  = player.superDuration;
+            player.superReady  = false;
+            // Spawna partikelexplosion vid aktivering för visuell feedback
+            spawnParticles(player.x, player.y, "#f1c40f", 20);
+        }
+    }
+});
+
+//GAME LOOP
 
 function gameLoop() {
     try {
